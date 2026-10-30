@@ -2,7 +2,8 @@
 
 Check the 12 EV chargers at the PolyU carpark, or subscribe to status summaries for your floor.
 
-**Bot:** [@polyu_evcharger_bot](https://t.me/polyu_evcharger_bot)  
+**Bot:** [@polyu_evcharger_bot](https://t.me/polyu_evcharger_bot)
+
 **Source:** [EVCharger@PolyU](https://www.polyu.edu.hk/greencampus/evcharger/index.php)
 
 ## Telegram menu
