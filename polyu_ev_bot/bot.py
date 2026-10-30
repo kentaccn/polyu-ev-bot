@@ -1,4 +1,4 @@
-"""Telegram commands, persistent menu, and inline charger filters."""
+"""Telegram commands, persistent menu, and charger status replies."""
 
 from datetime import datetime
 import logging
@@ -40,14 +40,8 @@ REPLY_MENU = {
 }
 
 
-def inline_menu(view="status"):
-    return {"inline_keyboard": [
-        [{"text": "⚡ All", "callback_data": "status"}, {"text": "🟢 Available", "callback_data": "available"}],
-        [{"text": f"Level {i}", "callback_data": f"level{i}"} for i in range(1, 4)],
-        [{"text": "🔄 Refresh", "callback_data": view}, {"text": "📋 Menu", "callback_data": "menu"}],
-        [{"text": "🔔 Notifications", "callback_data": "subscriptions"}],
-        [{"text": "🌐 Official PolyU status", "url": SOURCE_URL}],
-    ]}
+def status_controls(view="status"):
+    return {"inline_keyboard": [[{"text": "🔄 Refresh", "callback_data": view}]]}
 
 
 def floor_menu():
@@ -126,9 +120,10 @@ class Bot:
         LOG.info("Bot ready: @%s", self.username)
 
     def send(self, chat_id, text, markup=None):
-        return self.api.call("sendMessage", chat_id=chat_id, text=text,
-                             reply_markup=markup or inline_menu(),
-                             link_preview_options={"is_disabled": True})
+        payload = {"chat_id": chat_id, "text": text, "link_preview_options": {"is_disabled": True}}
+        if markup is not None:
+            payload["reply_markup"] = markup
+        return self.api.call("sendMessage", **payload)
 
     def handle(self, update):
         callback = update.get("callback_query")
@@ -172,20 +167,20 @@ class Bot:
             try:
                 text = render_status(self.source.get(), action)
             except SourceError:
-                text = "⚠️ PolyU status is temporarily unavailable.\n\nAvailability could not be verified. Try Refresh in a minute or check the official page below."
+                text = f"⚠️ PolyU status is temporarily unavailable.\n\nAvailability could not be verified. Try Refresh in a minute or check the official page:\n{SOURCE_URL}"
                 LOG.warning("PolyU source unavailable; no cached availability served.")
             if callback and message.get("message_id"):
                 try:
                     self.api.call("editMessageText", chat_id=chat_id, message_id=message["message_id"],
-                                  text=text, reply_markup=inline_menu(action),
+                                  text=text, reply_markup=status_controls(action),
                                   link_preview_options={"is_disabled": True})
                 except TelegramError as exc:
                     if exc.code != 400:
                         raise
                     # Identical cached text or an uneditable old message: send a usable response.
-                    self.send(chat_id, text, inline_menu(action))
+                    self.send(chat_id, text, status_controls(action))
             else:
-                self.send(chat_id, text, inline_menu(action))
+                self.send(chat_id, text, status_controls(action))
         else:
             self.send(chat_id, "Choose a button below, or use /menu to open the charger menu.", REPLY_MENU)
 
@@ -241,11 +236,7 @@ class Bot:
                 self.subscriptions.reschedule(sub.chat_id, unavailable=True)
                 continue
             try:
-                self.send(sub.chat_id, text, {"inline_keyboard": [
-                    [{"text": "🔄 Check now", "callback_data": sub.view}],
-                    [{"text": "⚙️ Notification settings", "callback_data": "subscriptions"}],
-                    [{"text": "🔕 Stop notifications", "callback_data": "unsubscribe"}],
-                ]})
+                self.send(sub.chat_id, text, status_controls(sub.view))
             except TelegramError as exc:
                 if exc.code in {400, 403}:
                     self.subscriptions.delete(sub.chat_id)

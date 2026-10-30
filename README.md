@@ -21,7 +21,7 @@ Check the 12 EV chargers at the PolyU carpark, or subscribe to status summaries 
 | `/unsubscribe` | Stop notifications and delete your subscription |
 | `/help`, `/privacy` | Usage and data handling |
 
-Commands and Telegram’s Menu button are registered automatically on startup. Status messages include inline floor filters, Refresh, subscription settings, and the official page link.
+Commands and Telegram’s Menu button are registered automatically on startup. Navigation stays in the persistent keyboard at the bottom. Status replies and scheduled updates include only a Refresh button, so the full menu is not repeated under each message. Subscription setup shows floor and frequency choices when requested.
 
 ### Notifications
 

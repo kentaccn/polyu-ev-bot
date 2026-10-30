@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
-from polyu_ev_bot.bot import Bot, COMMANDS, REPLY_MENU, inline_menu, render_status
+from polyu_ev_bot.bot import Bot, COMMANDS, REPLY_MENU, status_controls, render_status
 from polyu_ev_bot.config import Config, load_env
 from polyu_ev_bot.source import HKT, SourceClient, SourceError, parse_page
 from polyu_ev_bot.telegram import Telegram, TelegramError
@@ -148,7 +148,7 @@ class MenuTests(unittest.TestCase):
         self.source.get.side_effect = SourceError("offline")
         self.bot.handle(self.update("/all"))
         self.assertIn("temporarily unavailable", self.api.call.call_args.kwargs["text"])
-        self.assertEqual(self.api.call.call_args.kwargs["reply_markup"], inline_menu("all"))
+        self.assertEqual(self.api.call.call_args.kwargs["reply_markup"], status_controls("all"))
 
     def test_allowlist_rejects_unauthorized_commands_and_callbacks(self):
         self.bot.config = Config("unused", frozenset({456}))
@@ -171,7 +171,7 @@ class MenuTests(unittest.TestCase):
 
     def test_callback_data_fits_telegram_limits(self):
         for view in [c for c, _ in COMMANDS if c in {"all", "status", "available", "level1", "level2", "level3"}]:
-            for row in inline_menu(view)["inline_keyboard"]:
+            for row in status_controls(view)["inline_keyboard"]:
                 for button in row:
                     if "callback_data" in button:
                         self.assertLessEqual(len(button["callback_data"].encode()), 64)
