@@ -14,6 +14,8 @@ COMMANDS = [
     ("all", "All chargers on levels 1, 2 and 3"),
     ("status", "All 12 chargers"),
     ("available", "Available chargers only"),
+    ("predict", "Last empty times and free-time estimates"),
+    ("history", "History collection and prediction progress"),
     ("level1", "Level 1: chargers 1–4"),
     ("level2", "Level 2: chargers 5–8"),
     ("level3", "Level 3: chargers 9–12"),
@@ -30,7 +32,7 @@ LABELS = {
     "ℹ️ Help": "help", "📋 Menu": "menu",
     "🔔 Notifications": "subscriptions",
 }
-VIEWS = {"all", "status", "available", "level1", "level2", "level3"}
+VIEWS = {"all", "status", "available", "predict", "level1", "level2", "level3"}
 REPLY_MENU = {
     "keyboard": [[{"text": "⚡ All chargers"}, {"text": "🟢 Available"}],
                  [{"text": f"🏢 Level {i}"} for i in range(1, 4)],
@@ -68,7 +70,7 @@ def subscription_menu(active=False):
     return {"inline_keyboard": rows}
 
 
-def render_status(snapshot, view, now=None):
+def render_status(snapshot, view, now=None, history=None):
     now = now or datetime.now(HKT)
     warning = snapshot.warning(now)
     lines = ["⚡ PolyU EV chargers"]
@@ -96,18 +98,29 @@ def render_status(snapshot, view, now=None):
         chargers = [c for c in selected if c.level == level]
         if chargers:
             lines += ["", f"🏢 Level {level}, Carpark"]
-            lines.extend(f"{ICONS[c.status]} No. {c.number} — {c.status}" for c in chargers)
+            for charger in chargers:
+                lines.append(f"{ICONS[charger.status]} No. {charger.number} — {charger.status}")
+                if history:
+                    details = history.describe(charger, snapshot, now.timestamp())
+                    if not view.startswith("level") and len(details) > 2:
+                        forecast = next((line for line in details if line.startswith("Est. free:") and "not enough" not in line), details[-1])
+                        details = [details[0], forecast]
+                    lines.extend("  " + line for line in details)
     lines += ["", f"PolyU updated: {snapshot.updated_at:%d %b %Y, %H:%M} HKT",
               f"Page fetched: {snapshot.fetched_at:%H:%M:%S} HKT",
-              "PolyU updates about once a minute. Refresh shares a 60-second cache.",
+              "PolyU is checked about once a minute. Refresh uses the latest observation.",
               "Availability can change before you arrive."]
+    if history:
+        lines += ["Estimates assume the 4h limit; cars may leave earlier or remain occupied. "
+                  "Vehicle kW / battery level are unknown. Historical ranges appear once enough sessions are recorded."]
     return "\n".join(lines)
 
 
 class Bot:
-    def __init__(self, api, source, config, subscriptions=None):
+    def __init__(self, api, source, config, subscriptions=None, history=None):
         self.api, self.source, self.config = api, source, config
         self.subscriptions = subscriptions
+        self.history = history
         self.username = ""
 
     def setup(self):
@@ -160,12 +173,14 @@ class Bot:
         elif action in {"start", "menu"}:
             self.send(chat_id, "⚡ PolyU EV charger menu\n\nChoose all chargers, available chargers, or a carpark level.\n🟢 Available · 🟠 Occupied · 🔧 Not in service\n\n🔔 Notifications: choose your floor and frequency with /subscribe.\n\nUse the buttons below or Telegram’s Menu button.", REPLY_MENU)
         elif action == "help":
-            self.send(chat_id, "Use /all, /available, /level1, /level2, or /level3.\n\n/subscribe — choose Level 1, 2, 3 or all floors, then a frequency of 1, 5, 15, 30 or 60 minutes. Notifications send a status summary every interval, even if unchanged.\n/subscriptions — view or change settings\n/unsubscribe — stop and delete settings\n\nAll chats share a one-minute source cache. Times are HKT; old source data triggers a warning. Delivery may be delayed by network outages or Telegram limits; missed intervals are not replayed.\n\nUse /menu to restore the keyboard. This is an unofficial bot, not a booking service.")
+            self.send(chat_id, "Use /all, /available, /level1, /level2, or /level3.\n\n/predict — last-seen-empty times and estimated free times\n/history — recording progress\n\nHistory is collected every minute. Estimates use observed occupancy, completed sessions and the assumed 4h limit. Vehicle power and battery charge are not published. A cold-start estimate has low confidence; the 4h limit does not guarantee a car has moved.\n\n/subscribe — choose Level 1, 2, 3 or all floors, then every 1, 5, 15, 30 or 60 minutes\n/subscriptions — view or change settings\n/unsubscribe — stop and delete settings\n\nNotifications send summaries even if unchanged. All times are HKT. Delays and missed observations can occur. Use /menu to restore the keyboard. This is an unofficial bot, not a booking service.")
+        elif action == "history":
+            self.send(chat_id, self.history.summary() if self.history else "History collection is not enabled on this instance.")
         elif action == "privacy":
             self.send(chat_id, "The bot processes your Telegram chat ID and commands to reply. If you subscribe, it saves your chat ID, chosen floor, notification interval and next delivery time in a local database. It does not save message contents. /unsubscribe deletes your subscription record.\n\nTelegram handles messages under its own policy. Only the public charger page is requested from PolyU; your Telegram details are not sent to PolyU. Operators may restrict access by chat ID.")
         elif action in VIEWS:
             try:
-                text = render_status(self.source.get(), action)
+                text = render_status(self.source.get(), action, history=self.history)
             except SourceError:
                 text = f"⚠️ PolyU status is temporarily unavailable.\n\nAvailability could not be verified. Try Refresh in a minute or check the official page:\n{SOURCE_URL}"
                 LOG.warning("PolyU source unavailable; no cached availability served.")
@@ -228,7 +243,7 @@ class Bot:
             try:
                 snapshot = self.source.get()
                 unavailable = bool(snapshot.warning())
-                text = f"🔔 Scheduled update · {sub.label}\n\n" + render_status(snapshot, sub.view)
+                text = f"🔔 Scheduled update · {sub.label}\n\n" + render_status(snapshot, sub.view, history=self.history)
             except SourceError:
                 unavailable = True
                 text = "🔔 PolyU status is temporarily unavailable.\n\nI’ll keep checking and send your next status summary when data returns. You won’t receive repeated outage notices."

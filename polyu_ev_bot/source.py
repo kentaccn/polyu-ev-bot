@@ -90,7 +90,7 @@ class Snapshot:
             return "PolyU's update time is in the future. Availability may be unreliable."
         if now - self.updated_at > timedelta(minutes=5):
             return "PolyU's data is over 5 minutes old. Availability may have changed."
-        if self.service.casefold() != "normal":
+        if self.service.casefold() not in {"normal", "full"}:
             return f"PolyU reports: {self.service}. Availability may be unreliable."
         return None
 
@@ -152,7 +152,8 @@ def parse_page(html, fetched_at=None):
 class SourceClient:
     """Share a 60-second cache between all chats, matching the source cadence."""
 
-    def __init__(self):
+    def __init__(self, history=None):
+        self.history = history
         self.snapshot = None
         self.next_fetch = 0.0
         self.last_error = None
@@ -162,6 +163,7 @@ class SourceClient:
             if self.last_error:
                 raise SourceError(self.last_error)
             return self.snapshot
+        raw = None
         try:
             request = Request(SOURCE_URL, headers={"User-Agent": "PolyU-EV-Telegram-Bot/0.1", "Cache-Control": "no-cache"})
             with urlopen(request, timeout=15) as response:
@@ -171,9 +173,13 @@ class SourceClient:
             snapshot = parse_page(raw.decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, OSError, HTTPException, UnicodeError, ValueError, RecursionError, SourceError) as exc:
             self.last_error = str(exc) if isinstance(exc, SourceError) else "Could not read PolyU's status page."
+            if self.history:
+                self.history.record(raw=raw[:MAX_PAGE_BYTES] if raw is not None else None, error=self.last_error)
             self.next_fetch = time.monotonic() + 60
             raise SourceError(self.last_error) from None
         self.snapshot = snapshot
+        if self.history:
+            self.history.record(snapshot, raw)
         self.last_error = None
         self.next_fetch = time.monotonic() + 60
         return snapshot

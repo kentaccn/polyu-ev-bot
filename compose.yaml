@@ -1,0 +1,36 @@
+name: polyu-ev-bot
+
+x-common: &common
+  image: polyu-ev-bot:local
+  build: .
+  restart: unless-stopped
+  init: true
+  environment:
+    BOT_DATA_DIR: /app/data
+  volumes:
+    - polyu-ev-data:/app/data
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  collector:
+    <<: *common
+    command: ["python", "-m", "polyu_ev_bot", "--collect"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "polyu_ev_bot.healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  bot:
+    <<: *common
+    env_file: .env
+    depends_on:
+      collector:
+        condition: service_healthy
+
+volumes:
+  polyu-ev-data:
